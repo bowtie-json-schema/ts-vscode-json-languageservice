@@ -7,6 +7,7 @@ const jsonls_version = packageJson.version;
 
 import {
   getLanguageService,
+  JSONSchema,
   SchemaDraft,
   TextDocument,
 } from "vscode-json-languageservice";
@@ -25,16 +26,30 @@ const schemaIds: { [id: string]: SchemaDraft } = {
   "http://json-schema.org/draft-04/schema#": SchemaDraft.v4,
 };
 
-function send(data) {
+function send(data: unknown): void {
   console.log(JSON.stringify(data));
 }
 
-var started = false;
-var dialect = null;
+interface TestCase {
+  schema: JSONSchema;
+  registry: Record<string, unknown>;
+  tests: Array<{ instance: unknown }>;
+}
+
+interface BowtieRequest {
+  cmd: string;
+  version?: number;
+  dialect?: string;
+  seq?: unknown;
+  case?: TestCase;
+}
+
+let started = false;
+let dialect: SchemaDraft | undefined;
 const ls = getLanguageService({});
 
-const cmds = {
-  start: async (args) => {
+const cmds: Record<string, (args: BowtieRequest) => Promise<unknown>> = {
+  start: async (args: BowtieRequest) => {
     console.assert(args.version === 1, { args });
     started = true;
     return {
@@ -62,23 +77,22 @@ const cmds = {
     };
   },
 
-  dialect: async (args) => {
+  dialect: async (args: BowtieRequest) => {
     console.assert(started, "Not started!");
-    dialect = schemaIds[args.dialect];
+    dialect = schemaIds[args.dialect!];
     return { ok: true };
   },
 
-  run: async (args) => {
+  run: async (args: BowtieRequest) => {
     console.assert(started, "Not started!");
 
-    const testCase = args.case;
+    const testCase = args.case!;
 
-    for (const id in testCase.registry) {
+    for (const _id in testCase.registry) {
     }
 
-    let results;
-    results = await Promise.all(
-      testCase.tests.map(async (test) => {
+    const results = await Promise.all(
+      testCase.tests.map(async (test: { instance: unknown }) => {
         try {
           const textDoc = TextDocument.create(
             "example://bowtie-test.json",
@@ -94,12 +108,13 @@ const cmds = {
             testCase.schema,
           );
           return { valid: semanticErrors.length === 0 ? true : false };
-        } catch (error) {
+        } catch (error: unknown) {
+          const err = error instanceof Error ? error : new Error(String(error));
           return {
             errored: true,
             context: {
-              traceback: error.stack,
-              message: error.message,
+              traceback: err.stack,
+              message: err.message,
             },
           };
         }
@@ -108,16 +123,17 @@ const cmds = {
     return { seq: args.seq, results: results };
   },
 
-  stop: async (_) => {
+  stop: async (_: BowtieRequest) => {
     console.assert(started, "Not started!");
     process.exit(0);
   },
 };
 
-async function main() {
+async function main(): Promise<void> {
   for await (const line of stdio) {
-    const request = JSON.parse(line);
-    const response = await cmds[request.cmd](request);
+    const request: BowtieRequest = JSON.parse(line);
+    const handler = cmds[request.cmd];
+    const response = await handler(request);
     send(response);
   }
 }
