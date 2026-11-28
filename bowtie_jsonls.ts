@@ -40,6 +40,7 @@ interface BowtieRequest {
   cmd: string;
   version?: number;
   dialect?: string;
+  output?: string | null;
   seq?: unknown;
   case?: TestCase;
 }
@@ -85,6 +86,15 @@ const cmds: Record<string, (args: BowtieRequest) => Promise<unknown>> = {
 
   run: async (args: BowtieRequest) => {
     console.assert(started, "Not started!");
+
+    const output = args.output ?? "flag";
+    if (output !== "flag") {
+      return {
+        seq: args.seq,
+        skipped: true,
+        message: `Unsupported output format: ${output}`,
+      };
+    }
 
     const testCase = args.case!;
 
